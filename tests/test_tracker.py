@@ -2,6 +2,14 @@
 
 from src.tracker import track_face_crop
 
+def make_bbox(cx, cy=180, w=40, h=40):
+    return (cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
+
+def expand_compressed(compressed):
+    frames = []
+    for x, y, count in compressed:
+        frames.extend([(x, y)] * count)
+    return frames
 
 class TestTrackFaceCropBasics:
     """Basic sanity tests for track_face_crop."""
@@ -33,3 +41,49 @@ class TestTrackFaceCropBasics:
         assert compressed[0][0] == -1
         assert compressed[0][1] == -1
         assert compressed[0][2] == 3  # 3 no-face frames
+
+class TestTrackFaceCropRegression:
+    def test_deadzone_holds_for_small_motion_inside_deadzone(self):
+        bboxes = [make_bbox(320), make_bbox(325), make_bbox(328)]
+        compressed, _ = track_face_crop(
+            bboxes,
+            video_width=640,
+            video_height=360,
+            deadzone_ratio=0.10,
+            smoothing=0.25,
+            pixel_tolerance=0,
+            min_speaker_hold_frames=0,
+        )
+
+        frames = expand_compressed(compressed)
+        assert frames[0] == frames[1] == frames[2]
+
+    def test_scene_boundary_snaps_instantly(self):
+        bboxes = [make_bbox(320), make_bbox(500)]
+        compressed, scene_cuts = track_face_crop(
+            bboxes,
+            video_width=640,
+            video_height=360,
+            face_scenes=[(1, 10)],
+            pixel_tolerance=0,
+            min_speaker_hold_frames=0,
+        )
+
+        frames = expand_compressed(compressed)
+        assert scene_cuts == [1]
+        assert frames[1][0] == 500
+
+    def test_speaker_switch_snaps_instantly(self):
+        bboxes = [make_bbox(320), make_bbox(500)]
+        compressed, scene_cuts = track_face_crop(
+            bboxes,
+            video_width=640,
+            video_height=360,
+            speaker_track_ids=[0, 1],
+            pixel_tolerance=0,
+            min_speaker_hold_frames=0,
+        )
+
+        frames = expand_compressed(compressed)
+        assert scene_cuts == [1]
+        assert frames[1][0] == 500
